@@ -19,6 +19,65 @@ const (
 	ChecksumSep = "*"
 )
 
+var (
+	customParsers          = map[string]parserCallbackType{}
+	defaultSentenceParsers = map[string]parserCallbackType{
+		TypeRMC: func(s BaseSentence) (Sentence, error) {
+			return newRMC(s)
+		},
+		TypeGGA: func(s BaseSentence) (Sentence, error) {
+			return newGGA(s)
+		},
+		TypeGSA: func(s BaseSentence) (Sentence, error) {
+			return newGSA(s)
+		},
+		TypeGLL: func(s BaseSentence) (Sentence, error) {
+			return newGLL(s)
+		},
+		TypeVTG: func(s BaseSentence) (Sentence, error) {
+			return newVTG(s)
+		},
+		TypeZDA: func(s BaseSentence) (Sentence, error) {
+			return newZDA(s)
+		},
+		TypePGRME: func(s BaseSentence) (Sentence, error) {
+			return newPGRME(s)
+		},
+		TypeGSV: func(s BaseSentence) (Sentence, error) {
+			return newGSV(s)
+		},
+		TypeHDT: func(s BaseSentence) (Sentence, error) {
+			return newHDT(s)
+		},
+		TypeGNS: func(s BaseSentence) (Sentence, error) {
+			return newGNS(s)
+		},
+		TypeTHS: func(s BaseSentence) (Sentence, error) {
+			return newTHS(s)
+		},
+		TypeWPL: func(s BaseSentence) (Sentence, error) {
+			return newWPL(s)
+		},
+		TypeRTE: func(s BaseSentence) (Sentence, error) {
+			return newRTE(s)
+		},
+		TypeVHW: func(s BaseSentence) (Sentence, error) {
+			return newVHW(s)
+		},
+		TypeDPT: func(s BaseSentence) (Sentence, error) {
+			return newDPT(s)
+		},
+		TypeDBT: func(s BaseSentence) (Sentence, error) {
+			return newDBT(s)
+		},
+		TypeDBS: func(s BaseSentence) (Sentence, error) {
+			return newDBS(s)
+		},
+	}
+)
+
+type parserCallbackType func(BaseSentence) (Sentence, error)
+
 // Sentence interface for all NMEA sentence
 type Sentence interface {
 	fmt.Stringer
@@ -71,6 +130,12 @@ func parseSentence(raw string) (BaseSentence, error) {
 		checksumRaw = strings.ToUpper(raw[sumSepIndex+1:])
 		checksum    = Checksum(fieldsRaw)
 	)
+
+	fmt.Printf("raw: %s\n", raw)
+	fmt.Printf("fieldsRaw: %s\n", fieldsRaw)
+	fmt.Printf("checksumRaw: %s\n", checksumRaw)
+	fmt.Printf("checksum: %s\n", checksum)
+
 	// Validate the checksum
 	if checksum != checksumRaw {
 		return BaseSentence{}, fmt.Errorf(
@@ -110,54 +175,46 @@ func Checksum(s string) string {
 	return fmt.Sprintf("%02X", checksum)
 }
 
+// MustRegisterParser register a custom parser or panic
+func MustRegisterParser(t string, parser func(BaseSentence) (Sentence, error)) {
+	if err := RegisterParser(t, parser); err != nil {
+		panic(err)
+	}
+}
+
+// RegisterParser register a custom parser
+func RegisterParser(t string, parser func(BaseSentence) (Sentence, error)) error {
+	if _, ok := customParsers[t]; ok {
+		return fmt.Errorf("nmea: parser for prefix '%s' already exists", t)
+	}
+
+	customParsers[t] = parser
+	return nil
+}
+
 // Parse parses the given string into the correct sentence type.
 func Parse(raw string) (Sentence, error) {
 	s, err := parseSentence(raw)
 	if err != nil {
 		return nil, err
 	}
+
+	// Custom parser allow overriding of existing parsers
+	if customParserCallback, ok := customParsers[s.Type]; ok {
+		return customParserCallback(s)
+	}
+
 	if strings.HasPrefix(s.Raw, SentenceStart) {
+
 		// MTK message types share the same format
 		// so we return the same struct for all types.
 		switch s.Talker {
 		case TypeMTK:
 			return newMTK(s)
 		}
-		switch s.Type {
-		case TypeRMC:
-			return newRMC(s)
-		case TypeGGA:
-			return newGGA(s)
-		case TypeGSA:
-			return newGSA(s)
-		case TypeGLL:
-			return newGLL(s)
-		case TypeVTG:
-			return newVTG(s)
-		case TypeZDA:
-			return newZDA(s)
-		case TypePGRME:
-			return newPGRME(s)
-		case TypeGSV:
-			return newGSV(s)
-		case TypeHDT:
-			return newHDT(s)
-		case TypeGNS:
-			return newGNS(s)
-		case TypeTHS:
-			return newTHS(s)
-		case TypeWPL:
-			return newWPL(s)
-		case TypeRTE:
-			return newRTE(s)
-		case TypeVHW:
-			return newVHW(s)
-		case TypeDPT:
-			return newDPT(s)
-		case TypeDBT:
-			return newDBT(s)
-		case TypeDBS:
-			return newDBS(s)
+
+		if parserCallback, ok := defaultSentenceParsers[s.Type]; ok {
+			return parserCallback(s)
 		}
 	}
 	if strings.HasPrefix(s.Raw, SentenceStartEncapsulated) {
@@ -166,5 +223,6 @@ func Parse(raw string) (Sentence, error) {
 			return newVDMVDO(s)
 		}
 	}
+
 	return nil, fmt.Errorf("nmea: sentence prefix '%s' not supported", s.Prefix())
 }
